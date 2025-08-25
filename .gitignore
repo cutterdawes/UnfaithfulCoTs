@@ -1,0 +1,13 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build artifacts (optional safety)
+*.egg-info/
+dist/
+build/
+

@@ -28,6 +28,7 @@ def main():
     ap.add_argument("--max-new", type=int, default=64, help="Max new tokens to generate")
     ap.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
     ap.add_argument("--seed", type=int, default=0, help="Random seed for pairs")
+    ap.add_argument("--layer", type=int, default=20, help="Feature layer (transformer block index, 0=embed->block0). Use -1 for last layer.")
     ap.add_argument("--device", default=None, help="Device override: cpu|cuda|mps (default prefers CUDA, else CPU)")
     ap.add_argument("--device-map", default=None, help="Hugging Face device_map, e.g., 'auto' or 'none' (default: none)")
     ap.add_argument(
@@ -52,8 +53,8 @@ def main():
     if isinstance(dm, str) and dm.strip().lower() in {"none", "", "null"}:
         dm = None
 
-    model = HFModel(model_name=args.model, device=dev, device_map=dm)
-    print(f"Model: {args.model} | Device: {model.device} | device_map: {dm or 'none'}")
+    model = HFModel(model_name=args.model, device=dev, device_map=dm, feature_layer=args.layer)
+    print(f"Model: {args.model} | Device: {model.device} | device_map: {dm or 'none'} | layer: {args.layer}")
     if args.wm_path and os.path.exists(args.wm_path):
         from faithvec.wm import load_wm_pairs_list
         all_pairs = load_wm_pairs_list(args.wm_path, seed=args.seed, property_name=args.wm_prop)
@@ -115,6 +116,7 @@ def main():
             'model': args.model,
             'device': model.device,
             'device_map': dm or 'none',
+            'feature_layer': args.layer,
             'wm_path': args.wm_path if args.wm_path and os.path.exists(args.wm_path) else None,
             'wm_prop': args.wm_prop if prop_tag else None,
             'n_train': args.n,

@@ -36,6 +36,7 @@ class HFModel:
         dtype: Optional[torch.dtype] = None,
         device_map: Optional[str] = None,
         trust_remote_code: bool = True,
+        feature_layer: int = -1,
     ):
         # Prefer CUDA if available; avoid defaulting to MPS due to stability issues on some models
         preferred_device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -73,6 +74,8 @@ class HFModel:
             self.model.to(self.device)
 
         self.model.eval()
+        # Feature extraction layer (Transformer block index, 0-based). -1 means last layer.
+        self.feature_layer = feature_layer
 
     @torch.no_grad()
     def generate_with_features(self, prompt: str, max_new_tokens: int = 64, temperature: float = 0.7) -> GenerationResult:
@@ -93,14 +96,27 @@ class HFModel:
 
         # Recompute hidden states on the full sequence to extract features
         out = self.model(full_ids, output_hidden_states=True, use_cache=False)
-        hidden_states: Tuple[torch.Tensor, ...] = out.hidden_states  # len=L+1
+        hidden_states: Tuple[torch.Tensor, ...] = out.hidden_states  # len = num_layers + 1 (incl. embeddings)
+
+        # Choose layer: map transformer block index -> hidden_states index (+1 offset for embeddings)
+        num_blocks = len(hidden_states) - 1
+        feat_block = self.feature_layer if self.feature_layer >= 0 else (num_blocks - 1)
+        if feat_block >= num_blocks:
+            # Clamp to last available block
+            feat_block = num_blocks - 1
+        hs_chosen = hidden_states[feat_block + 1]
 
         # Mask only the generated continuation tokens (exclude prompt)
         gen_len = full_ids.size(1) - tok.input_ids.size(1)
         mask = torch.zeros_like(full_ids, dtype=torch.bool)
         if gen_len > 0:
             mask[:, -gen_len:] = True
-        feat = _mean_last_hidden(list(hidden_states), token_mask=mask)
+        # Mean-pool over chosen layer
+        if mask.any():
+            masked = hs_chosen.masked_select(mask.unsqueeze(-1)).view(-1, hs_chosen.size(-1))
+            feat = masked.mean(dim=0)
+        else:
+            feat = hs_chosen.reshape(-1, hs_chosen.size(-1)).mean(dim=0)
 
         return GenerationResult(
             prompt=prompt,
@@ -108,4 +124,3 @@ class HFModel:
             tokens=full_ids[0].tolist(),
             features=feat.detach().cpu(),
         )
-
